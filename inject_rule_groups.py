@@ -62,10 +62,7 @@ def inject_rule_groups(config):
 
 
 def main():
-    paths = [
-        os.path.join(BASE, "config", "package.json"),
-        os.path.join(BASE, "package-simple.json"),
-    ]
+    paths = [os.path.join(BASE, "config", "package.json")]
     for path in paths:
         with open(path, encoding="utf-8") as f:
             config = json.load(f)

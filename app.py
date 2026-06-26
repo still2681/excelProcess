@@ -22,10 +22,9 @@ from rule_engine import (
     sync_group_selection,
 )
 
-CONFIG_OPTIONS = {
-    "完整规则集": os.path.join(BASE_DIR, "config", "package.json"),
-    "精简规则集": os.path.join(BASE_DIR, "package-simple.json"),
-}
+CONFIG_PATH = os.path.join(BASE_DIR, "config", "package.json")
+CONFIG_LABEL = "完整规则集"
+PRESET_STATE_KEY = "active_preset"
 GROUP_ORDER = ["data", "country", "email", "affiliation", "name"]
 
 MATCH_MODE_LABELS = {
@@ -195,14 +194,10 @@ def init_session_state():
         st.session_state.rule_selection = {}
     if "group_selection" not in st.session_state:
         st.session_state.group_selection = {}
-    if "last_config_key" not in st.session_state:
-        st.session_state.last_config_key = None
     if "result" not in st.session_state:
         st.session_state.result = None
-
-
-def preset_session_key(config_key):
-    return f"preset_{config_key}"
+    if "rules_initialized" not in st.session_state:
+        st.session_state.rules_initialized = False
 
 
 def get_all_preset_ids(config):
@@ -223,23 +218,20 @@ def apply_preset(config, preset_id):
     )
 
 
-def on_preset_change(config_key):
-    _, config = load_active_config(config_key)
-    preset_id = st.session_state[preset_session_key(config_key)]
+def on_preset_change():
+    config = load_config(CONFIG_PATH)
+    preset_id = st.session_state[PRESET_STATE_KEY]
     if preset_id != "custom":
         apply_preset(config, preset_id)
         st.session_state.result = None
 
 
 def ensure_rule_selection(config):
-    config_key = st.session_state.active_config_key
-    preset_key = preset_session_key(config_key)
-
-    if st.session_state.last_config_key != config_key:
+    if not st.session_state.rules_initialized:
         default_preset = "full_legacy" if "full_legacy" in config.get("presets", {}) else get_all_preset_ids(config)[0]
         apply_preset(config, default_preset)
-        st.session_state[preset_key] = default_preset
-        st.session_state.last_config_key = config_key
+        st.session_state[PRESET_STATE_KEY] = default_preset
+        st.session_state.rules_initialized = True
         st.session_state.result = None
 
     for rule in config.get("rules", []):
@@ -249,23 +241,22 @@ def ensure_rule_selection(config):
         config, st.session_state.rule_selection, st.session_state.group_selection
     )
 
-    if preset_key not in st.session_state:
-        st.session_state[preset_key] = find_matching_preset(
+    if PRESET_STATE_KEY not in st.session_state:
+        st.session_state[PRESET_STATE_KEY] = find_matching_preset(
             config,
             st.session_state.rule_selection,
             st.session_state.group_selection,
         )
 
 
-def sync_preset_before_widgets(config, config_key):
+def sync_preset_before_widgets(config):
     """Update preset selectbox state before the widget renders."""
-    preset_key = preset_session_key(config_key)
     matching = find_matching_preset(
         config,
         st.session_state.rule_selection,
         st.session_state.group_selection,
     )
-    st.session_state[preset_key] = matching
+    st.session_state[PRESET_STATE_KEY] = matching
     return matching
 
 
@@ -280,10 +271,8 @@ def request_preset_resync_if_needed(config, previous_matching):
         st.rerun()
 
 
-def load_active_config(config_key):
-    config_path = CONFIG_OPTIONS[config_key]
-    config = load_config(config_path)
-    return config_path, config
+def load_config_data():
+    return load_config(CONFIG_PATH)
 
 
 def get_enabled_rule_ids(config):
@@ -335,21 +324,18 @@ def render_grouped_rule_checkboxes(config):
 
 
 def render_sidebar(config):
-    config_key = st.session_state.active_config_key
-    preset_key = preset_session_key(config_key)
     preset_ids = get_all_preset_ids(config)
 
     st.sidebar.header("清洗规则")
 
-    preset_matching = sync_preset_before_widgets(config, config_key)
+    preset_matching = sync_preset_before_widgets(config)
 
     st.sidebar.selectbox(
         "预设方案",
         options=preset_ids,
         format_func=lambda pid: get_preset_label(config, pid),
-        key=preset_key,
+        key=PRESET_STATE_KEY,
         on_change=on_preset_change,
-        args=(config_key,),
     )
 
     st.sidebar.markdown("---")
@@ -382,7 +368,7 @@ def render_sidebar(config):
     request_preset_resync_if_needed(config, preset_matching)
 
 
-def render_cleaning(config_key, config):
+def render_cleaning(config):
     uploaded = st.file_uploader("上传 Excel 文件", type=["xlsx", "xls"])
 
     if uploaded is not None:
@@ -412,7 +398,7 @@ def render_cleaning(config_key, config):
                     uploaded.name,
                     config,
                     enabled_rule_ids,
-                    config_key,
+                    CONFIG_LABEL,
                 )
                 st.session_state.result = result
             except Exception as exc:
@@ -465,7 +451,7 @@ def render_cleaning(config_key, config):
         st.dataframe(result["df_kept"].head(50), use_container_width=True)
 
 
-def render_main(config_key, config_path, config):
+def render_main(config):
     st.title("Excel 联系人清洗")
     st.caption("上传含 email / affiliation / country 列的 Excel，按分层规则筛选并下载结果。")
 
@@ -480,7 +466,7 @@ def render_main(config_key, config_path, config):
         render_rule_details(config)
 
     with tab_clean:
-        render_cleaning(config_key, config)
+        render_cleaning(config)
 
 
 def main():
@@ -493,17 +479,11 @@ def main():
 
     init_session_state()
 
-    config_key = st.sidebar.selectbox(
-        "规则配置",
-        list(CONFIG_OPTIONS.keys()),
-        help="完整规则集：关键词更多、含具体公司名等；精简规则集：规则更少、清洗更轻。",
-    )
-    st.session_state.active_config_key = config_key
-    config_path, config = load_active_config(config_key)
+    config = load_config_data()
     ensure_rule_selection(config)
 
     render_sidebar(config)
-    render_main(config_key, config_path, config)
+    render_main(config)
 
 
 if __name__ == "__main__":

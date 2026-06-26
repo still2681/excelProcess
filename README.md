@@ -18,14 +18,15 @@ streamlit run app.py
 桌面版（tkinter）仍可使用：
 
 ```bash
-python main.py          # 完整规则集
-python process_v2.py    # 精简规则集
+python main.py
+python process_v2.py
 ```
 
 ## 功能
 
 - **分层规则**：邮箱 / 机构 / 国家 / 姓名规则可按 L1–L3 粒度单独开关
 - **双层勾选**：规则组总开关 + 组内子规则（如机构-商业：后缀 / 关键词 / 公司名）
+- **删除 / 保留**：删除规则先执行，保留规则（国家白名单、中国精英校）最后执行
 - **预设方案**：完整清洗、基础清洗、轻度商业、中国专项、MMailer 印度等
 - **输出文件**：
   - `*-Format.xlsx` — 保留数据
@@ -37,10 +38,9 @@ python process_v2.py    # 精简规则集
 ```
 app.py              # Streamlit 在线入口
 rule_engine.py      # 核心清洗引擎
-config/package.json # 完整规则配置
-package-simple.json # 精简规则配置
-main.py             # 本地 tkinter 入口（完整）
-process_v2.py       # 本地 tkinter 入口（精简）
+config/package.json # 规则配置
+main.py             # 本地 tkinter 入口
+process_v2.py       # 本地 tkinter 入口
 ```
 
 ## Streamlit Cloud 部署
@@ -52,4 +52,4 @@ process_v2.py       # 本地 tkinter 入口（精简）
 
 ## 规则配置
 
-规则定义在 JSON 中，每条规则包含 `id`、`level`、`match_mode`、`patterns` 等字段。修改 `config/package.json` 或 `package-simple.json` 即可调整关键词，无需改 Python 代码。
+规则定义在 `config/package.json` 中，每条规则包含 `id`、`level`、`action`、`match_mode`、`patterns` 等字段。修改 JSON 即可调整关键词，无需改 Python 代码。
