@@ -4,7 +4,16 @@ from io import BytesIO
 import pandas as pd
 import streamlit as st
 
-from rule_engine import get_rules_by_id, load_config, process_upload
+from rule_engine import (
+    find_matching_preset,
+    get_effective_enabled_rule_ids,
+    get_rule_group_order,
+    get_rule_groups,
+    get_rules_by_id,
+    load_config,
+    process_upload,
+    sync_group_selection,
+)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_OPTIONS = {
@@ -44,34 +53,42 @@ def describe_rule_logic(rule):
     return f"作用字段: {field} | 匹配方式: {mode_label} | 范围: {scope}"
 
 
+def is_rule_effectively_enabled(config, rule_id):
+    return rule_id in get_effective_enabled_rule_ids(
+        config,
+        st.session_state.rule_selection,
+        st.session_state.group_selection,
+    )
+
+
 def render_rule_details(config):
     st.subheader("规则详情")
     st.caption("查看每条规则的具体匹配逻辑和完整关键词列表。")
 
     group_labels = config.get("group_labels", {})
+    ui_groups = get_rule_groups(config)
     rules = sorted(config.get("rules", []), key=lambda r: r.get("order", 0))
 
     filter_col1, filter_col2, filter_col3 = st.columns([1, 1, 2])
     with filter_col1:
-        group_filter = st.selectbox(
-            "规则分组",
-            ["全部"] + [group_labels.get(g, g) for g in GROUP_ORDER],
-        )
+        ui_group_labels = ["全部"] + [info["label"] for info in ui_groups.values()]
+        ui_group_filter = st.selectbox("规则分组", ui_group_labels)
     with filter_col2:
-        scope_filter = st.selectbox("显示范围", ["全部规则", "仅已勾选规则"])
+        scope_filter = st.selectbox("显示范围", ["全部规则", "仅已生效规则"])
     with filter_col3:
         keyword = st.text_input("搜索关键词", placeholder="在国家/邮箱/机构关键词中搜索…")
 
-    if scope_filter == "仅已勾选规则":
-        rules = [r for r in rules if st.session_state.rule_selection.get(r["id"], False)]
+    if scope_filter == "仅已生效规则":
+        rules = [r for r in rules if is_rule_effectively_enabled(config, r["id"])]
 
-    if group_filter != "全部":
-        selected_group = next(
-            (g for g in GROUP_ORDER if group_labels.get(g, g) == group_filter),
+    if ui_group_filter != "全部":
+        selected_ui_group = next(
+            (gid for gid, info in ui_groups.items() if info["label"] == ui_group_filter),
             None,
         )
-        if selected_group:
-            rules = [r for r in rules if r.get("group") == selected_group]
+        if selected_ui_group:
+            allowed = set(ui_groups[selected_ui_group]["rules"])
+            rules = [r for r in rules if r["id"] in allowed]
 
     if keyword.strip():
         kw = keyword.strip().lower()
@@ -99,9 +116,15 @@ def render_rule_details(config):
     for rule in rules:
         level = rule.get("level", 0)
         group = group_labels.get(rule.get("group", ""), rule.get("group", ""))
-        enabled = st.session_state.rule_selection.get(rule["id"], False)
-        status = "已启用" if enabled else "未启用"
-        header = f"{'✅' if enabled else '⬜'} L{level} · {rule['name']}（{group}）"
+        enabled = is_rule_effectively_enabled(config, rule["id"])
+        checked_only = st.session_state.rule_selection.get(rule["id"], False)
+        if checked_only and not enabled:
+            status = "已勾选但未生效（所属分组已关闭）"
+            icon = "⚠️"
+        else:
+            status = "已生效" if enabled else "未生效"
+            icon = "✅" if enabled else "⬜"
+        header = f"{icon} L{level} · {rule['name']}（{group}）"
 
         with st.expander(header, expanded=False):
             st.markdown(f"**规则 ID：** `{rule['id']}`")
@@ -141,10 +164,11 @@ def render_rule_details(config):
                 st.markdown("**包含该规则的预设：** " + "、".join(preset_names))
 
 
-
 def init_session_state():
     if "rule_selection" not in st.session_state:
         st.session_state.rule_selection = {}
+    if "group_selection" not in st.session_state:
+        st.session_state.group_selection = {}
     if "last_config_key" not in st.session_state:
         st.session_state.last_config_key = None
     if "result" not in st.session_state:
@@ -164,20 +188,13 @@ def get_preset_label(config, preset_id):
     return config.get("presets", {}).get(preset_id, {}).get("label", preset_id)
 
 
-def find_matching_preset(config, rule_selection):
-    enabled = frozenset(rule_id for rule_id, on in rule_selection.items() if on)
-    for preset_id, info in config.get("presets", {}).items():
-        if preset_id == "custom":
-            continue
-        if frozenset(info.get("rules", [])) == enabled:
-            return preset_id
-    return "custom"
-
-
 def apply_preset(config, preset_id):
     preset_rules = set(config["presets"][preset_id].get("rules", []))
     for rule in config.get("rules", []):
         st.session_state.rule_selection[rule["id"]] = rule["id"] in preset_rules
+    st.session_state.group_selection = sync_group_selection(
+        config, st.session_state.rule_selection, st.session_state.group_selection
+    )
 
 
 def on_preset_change(config_key):
@@ -202,13 +219,25 @@ def ensure_rule_selection(config):
     for rule in config.get("rules", []):
         st.session_state.rule_selection.setdefault(rule["id"], rule.get("default_enabled", False))
 
+    st.session_state.group_selection = sync_group_selection(
+        config, st.session_state.rule_selection, st.session_state.group_selection
+    )
+
     if preset_key not in st.session_state:
-        st.session_state[preset_key] = find_matching_preset(config, st.session_state.rule_selection)
+        st.session_state[preset_key] = find_matching_preset(
+            config,
+            st.session_state.rule_selection,
+            st.session_state.group_selection,
+        )
 
 
 def sync_preset_display(config, config_key):
     preset_key = preset_session_key(config_key)
-    matching = find_matching_preset(config, st.session_state.rule_selection)
+    matching = find_matching_preset(
+        config,
+        st.session_state.rule_selection,
+        st.session_state.group_selection,
+    )
     if st.session_state.get(preset_key) != matching:
         st.session_state[preset_key] = matching
         st.rerun()
@@ -221,9 +250,51 @@ def load_active_config(config_key):
 
 
 def get_enabled_rule_ids(config):
+    return get_effective_enabled_rule_ids(
+        config,
+        st.session_state.rule_selection,
+        st.session_state.group_selection,
+    )
+
+
+def render_grouped_rule_checkboxes(config):
     rules_by_id = get_rules_by_id(config)
-    selected = [rid for rid, enabled in st.session_state.rule_selection.items() if enabled]
-    return sorted(selected, key=lambda rid: rules_by_id.get(rid, {}).get("order", 999))
+    rule_groups = get_rule_groups(config)
+
+    for group_id in get_rule_group_order(config):
+        group_info = rule_groups[group_id]
+        rule_ids = group_info["rules"]
+
+        if len(rule_ids) == 1:
+            rule_id = rule_ids[0]
+            checked = st.checkbox(
+                group_info["label"],
+                value=st.session_state.rule_selection.get(rule_id, False),
+            )
+            st.session_state.rule_selection[rule_id] = checked
+            st.session_state.group_selection[group_id] = checked
+            continue
+
+        group_enabled = st.checkbox(
+            group_info["label"],
+            value=st.session_state.group_selection.get(group_id, False),
+        )
+        st.session_state.group_selection[group_id] = group_enabled
+
+        for rule_id in rule_ids:
+            rule = rules_by_id[rule_id]
+            level = rule.get("level", 0)
+            child_checked = st.checkbox(
+                f"L{level} {rule['name']}",
+                value=st.session_state.rule_selection.get(rule_id, False),
+                disabled=not group_enabled,
+            )
+            if group_enabled:
+                st.session_state.rule_selection[rule_id] = child_checked
+
+        if group_enabled:
+            any_child = any(st.session_state.rule_selection.get(rule_id, False) for rule_id in rule_ids)
+            st.session_state.group_selection[group_id] = any_child
 
 
 def render_sidebar(config):
@@ -243,42 +314,32 @@ def render_sidebar(config):
     )
 
     st.sidebar.markdown("---")
-    st.sidebar.caption("切换预设会立即更新下方勾选。手动修改勾选后，预设将显示为「自定义」。")
+    st.sidebar.caption("第一层为规则组总开关，第二层为组内具体规则。关闭组后组内规则不生效。")
     st.sidebar.caption("完整关键词请见主界面 **规则详情** 标签页。")
 
-    if st.sidebar.button("全选", use_container_width=True):
+    btn_col1, btn_col2 = st.sidebar.columns(2)
+    if btn_col1.button("全选", use_container_width=True):
         for rule_id in st.session_state.rule_selection:
             st.session_state.rule_selection[rule_id] = True
+        for group_id in get_rule_groups(config):
+            st.session_state.group_selection[group_id] = True
         st.session_state.result = None
         st.rerun()
 
-    if st.sidebar.button("全不选", use_container_width=True):
+    if btn_col2.button("全不选", use_container_width=True):
         for rule_id in st.session_state.rule_selection:
             st.session_state.rule_selection[rule_id] = False
+        for group_id in get_rule_groups(config):
+            st.session_state.group_selection[group_id] = False
         st.session_state.result = None
         st.rerun()
 
-    group_labels = config.get("group_labels", {})
-    rules_by_group = {group: [] for group in GROUP_ORDER}
-    for rule in sorted(config.get("rules", []), key=lambda r: r.get("order", 0)):
-        rules_by_group.setdefault(rule.get("group", "other"), []).append(rule)
-
     with st.sidebar.expander("选择规则", expanded=True):
-        for group in GROUP_ORDER + [g for g in rules_by_group if g not in GROUP_ORDER]:
-            group_rules = rules_by_group.get(group, [])
-            if not group_rules:
-                continue
+        render_grouped_rule_checkboxes(config)
 
-            st.markdown(f"**{group_labels.get(group, group)}**")
-            for rule in group_rules:
-                level = rule.get("level", 0)
-                label = f"L{level} {rule['name']}"
-                checked = st.checkbox(
-                    label,
-                    value=st.session_state.rule_selection.get(rule["id"], False),
-                )
-                st.session_state.rule_selection[rule["id"]] = checked
-
+    st.session_state.group_selection = sync_group_selection(
+        config, st.session_state.rule_selection, st.session_state.group_selection
+    )
     sync_preset_display(config, config_key)
 
 
@@ -297,11 +358,11 @@ def render_cleaning(config_key, config):
             return
 
     enabled_rule_ids = get_enabled_rule_ids(config)
-    st.caption(f"当前已选 {len(enabled_rule_ids)} 条规则")
+    st.caption(f"当前已生效 {len(enabled_rule_ids)} 条规则")
 
     if st.button("开始清洗", type="primary", disabled=uploaded is None):
         if not enabled_rule_ids:
-            st.error("请至少选择一条清洗规则")
+            st.error("请至少选择一条生效的清洗规则")
             return
 
         with st.spinner("正在清洗..."):
@@ -393,7 +454,11 @@ def main():
 
     init_session_state()
 
-    config_key = st.sidebar.selectbox("规则配置", list(CONFIG_OPTIONS.keys()))
+    config_key = st.sidebar.selectbox(
+        "规则配置",
+        list(CONFIG_OPTIONS.keys()),
+        help="完整规则集：关键词更多、含具体公司名等；精简规则集：规则更少、清洗更轻。",
+    )
     st.session_state.active_config_key = config_key
     config_path, config = load_active_config(config_key)
     ensure_rule_selection(config)

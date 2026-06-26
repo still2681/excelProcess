@@ -1095,5 +1095,59 @@
       "default_enabled": true,
       "order": 14
     }
+  ],
+  "rule_groups": {
+    "data": {
+      "label": "数据质量",
+      "rules": [
+        "data.quality"
+      ]
+    },
+    "country": {
+      "label": "国家",
+      "rules": [
+        "country.whitelist"
+      ]
+    },
+    "email": {
+      "label": "邮箱",
+      "rules": [
+        "email.numeric_local",
+        "email.free_provider",
+        "email.country_tld",
+        "email.publisher",
+        "email.generic_tld",
+        "email.student",
+        "email.pharma_biotech",
+        "email.academic_special"
+      ]
+    },
+    "aff.commercial": {
+      "label": "机构 - 商业剔除",
+      "rules": [
+        "aff.commercial_suffix"
+      ]
+    },
+    "aff.china": {
+      "label": "机构 - 中国专项",
+      "rules": [
+        "aff.cn_non_elite",
+        "aff.cn_hospital"
+      ]
+    },
+    "name": {
+      "label": "姓名",
+      "rules": [
+        "name.india_surname"
+      ]
+    }
+  },
+  "rule_group_order": [
+    "data",
+    "country",
+    "email",
+    "aff.commercial",
+    "aff.china",
+    "name"
   ]
 }

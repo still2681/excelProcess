@@ -30,6 +30,66 @@ def get_rules_by_id(config):
     return {rule["id"]: rule for rule in config.get("rules", [])}
 
 
+def get_rule_groups(config):
+    return config.get("rule_groups", {})
+
+
+def get_rule_group_order(config):
+    groups = get_rule_groups(config)
+    order = config.get("rule_group_order", list(groups.keys()))
+    return [group_id for group_id in order if group_id in groups]
+
+
+def get_rule_ui_group(config, rule_id):
+    for group_id, group_info in get_rule_groups(config).items():
+        if rule_id in group_info.get("rules", []):
+            return group_id
+    return None
+
+
+def sync_group_selection(config, rule_selection, group_selection=None):
+    groups = get_rule_groups(config)
+    synced = dict(group_selection or {})
+    for group_id, group_info in groups.items():
+        rule_ids = group_info.get("rules", [])
+        if len(rule_ids) == 1:
+            synced[group_id] = rule_selection.get(rule_ids[0], False)
+        elif rule_ids:
+            synced[group_id] = any(rule_selection.get(rule_id, False) for rule_id in rule_ids)
+    return synced
+
+
+def get_effective_enabled_rule_ids(config, rule_selection, group_selection=None):
+    rules_by_id = get_rules_by_id(config)
+    groups = get_rule_groups(config)
+    group_selection = group_selection or {}
+
+    enabled = []
+    for rule_id, selected in rule_selection.items():
+        if not selected or rule_id not in rules_by_id:
+            continue
+        ui_group = get_rule_ui_group(config, rule_id)
+        if ui_group and not group_selection.get(ui_group, True):
+            continue
+        enabled.append(rule_id)
+
+    return sorted(enabled, key=lambda rid: rules_by_id[rid].get("order", 999))
+
+
+def find_matching_preset(config, rule_selection, group_selection=None):
+    if group_selection is None:
+        enabled = frozenset(rule_id for rule_id, on in rule_selection.items() if on)
+    else:
+        enabled = frozenset(get_effective_enabled_rule_ids(config, rule_selection, group_selection))
+
+    for preset_id, info in config.get("presets", {}).items():
+        if preset_id == "custom":
+            continue
+        if frozenset(info.get("rules", [])) == enabled:
+            return preset_id
+    return "custom"
+
+
 def resolve_enabled_rules(config, enabled_rule_ids):
     rules_by_id = get_rules_by_id(config)
     ordered = sorted(config.get("rules", []), key=lambda r: r.get("order", 0))
