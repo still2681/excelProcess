@@ -151,35 +151,73 @@ def init_session_state():
         st.session_state.result = None
 
 
-def load_active_config(config_key):
-    config_path = CONFIG_OPTIONS[config_key]
-    config = load_config(config_path)
-    return config_path, config
+def preset_session_key(config_key):
+    return f"preset_{config_key}"
 
 
-def ensure_rule_selection(config):
-    config_key = st.session_state.active_config_key
-    if st.session_state.last_config_key != config_key:
-        st.session_state.rule_selection = {
-            rule["id"]: rule.get("default_enabled", False)
-            for rule in config.get("rules", [])
-        }
-        st.session_state.last_config_key = config_key
-        st.session_state.result = None
-
-    for rule in config.get("rules", []):
-        st.session_state.rule_selection.setdefault(rule["id"], rule.get("default_enabled", False))
-
-
-def get_preset_options(config):
+def get_all_preset_ids(config):
     presets = config.get("presets", {})
-    return [(pid, info["label"]) for pid, info in presets.items() if pid != "custom"]
+    return [pid for pid in presets if pid != "custom"] + ["custom"]
+
+
+def get_preset_label(config, preset_id):
+    return config.get("presets", {}).get(preset_id, {}).get("label", preset_id)
+
+
+def find_matching_preset(config, rule_selection):
+    enabled = frozenset(rule_id for rule_id, on in rule_selection.items() if on)
+    for preset_id, info in config.get("presets", {}).items():
+        if preset_id == "custom":
+            continue
+        if frozenset(info.get("rules", [])) == enabled:
+            return preset_id
+    return "custom"
 
 
 def apply_preset(config, preset_id):
     preset_rules = set(config["presets"][preset_id].get("rules", []))
     for rule in config.get("rules", []):
         st.session_state.rule_selection[rule["id"]] = rule["id"] in preset_rules
+
+
+def on_preset_change(config_key):
+    _, config = load_active_config(config_key)
+    preset_id = st.session_state[preset_session_key(config_key)]
+    if preset_id != "custom":
+        apply_preset(config, preset_id)
+        st.session_state.result = None
+
+
+def ensure_rule_selection(config):
+    config_key = st.session_state.active_config_key
+    preset_key = preset_session_key(config_key)
+
+    if st.session_state.last_config_key != config_key:
+        default_preset = "full_legacy" if "full_legacy" in config.get("presets", {}) else get_all_preset_ids(config)[0]
+        apply_preset(config, default_preset)
+        st.session_state[preset_key] = default_preset
+        st.session_state.last_config_key = config_key
+        st.session_state.result = None
+
+    for rule in config.get("rules", []):
+        st.session_state.rule_selection.setdefault(rule["id"], rule.get("default_enabled", False))
+
+    if preset_key not in st.session_state:
+        st.session_state[preset_key] = find_matching_preset(config, st.session_state.rule_selection)
+
+
+def sync_preset_display(config, config_key):
+    preset_key = preset_session_key(config_key)
+    matching = find_matching_preset(config, st.session_state.rule_selection)
+    if st.session_state.get(preset_key) != matching:
+        st.session_state[preset_key] = matching
+        st.rerun()
+
+
+def load_active_config(config_key):
+    config_path = CONFIG_OPTIONS[config_key]
+    config = load_config(config_path)
+    return config_path, config
 
 
 def get_enabled_rule_ids(config):
@@ -189,21 +227,24 @@ def get_enabled_rule_ids(config):
 
 
 def render_sidebar(config):
+    config_key = st.session_state.active_config_key
+    preset_key = preset_session_key(config_key)
+    preset_ids = get_all_preset_ids(config)
+
     st.sidebar.header("清洗规则")
 
-    preset_options = get_preset_options(config)
-    preset_labels = [label for _, label in preset_options]
-    preset_id_by_label = {label: pid for pid, label in preset_options}
-
-    selected_label = st.sidebar.selectbox("预设方案", preset_labels)
-    if st.sidebar.button("应用预设", use_container_width=True):
-        apply_preset(config, preset_id_by_label[selected_label])
-        st.session_state.result = None
-        st.rerun()
+    st.sidebar.selectbox(
+        "预设方案",
+        options=preset_ids,
+        format_func=lambda pid: get_preset_label(config, pid),
+        key=preset_key,
+        on_change=on_preset_change,
+        args=(config_key,),
+    )
 
     st.sidebar.markdown("---")
-    st.sidebar.caption("完整关键词与匹配逻辑请切换到主界面 **规则详情** 标签页。")
-    st.sidebar.caption("也可手动勾选下方规则")
+    st.sidebar.caption("切换预设会立即更新下方勾选。手动修改勾选后，预设将显示为「自定义」。")
+    st.sidebar.caption("完整关键词请见主界面 **规则详情** 标签页。")
 
     if st.sidebar.button("全选", use_container_width=True):
         for rule_id in st.session_state.rule_selection:
@@ -237,6 +278,8 @@ def render_sidebar(config):
                     value=st.session_state.rule_selection.get(rule["id"], False),
                 )
                 st.session_state.rule_selection[rule["id"]] = checked
+
+    sync_preset_display(config, config_key)
 
 
 def render_cleaning(config_key, config):
