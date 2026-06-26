@@ -1,5 +1,11 @@
 import os
+import sys
 from io import BytesIO
+
+# Ensure repo root is on path (Streamlit Cloud working directory safety)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+if BASE_DIR not in sys.path:
+    sys.path.insert(0, BASE_DIR)
 
 import pandas as pd
 import streamlit as st
@@ -15,7 +21,6 @@ from rule_engine import (
     sync_group_selection,
 )
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_OPTIONS = {
     "完整规则集": os.path.join(BASE_DIR, "config", "package.json"),
     "精简规则集": os.path.join(BASE_DIR, "package-simple.json"),
