@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+.env
+.venv/
+venv/
+.idea/
+*.xlsx
+*.xls
+*-Format.xlsx
+*-Deleted.xlsx
+*-RunConfig.json
+_test_*
+.DS_Store
