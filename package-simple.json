@@ -81,7 +81,8 @@
       "match_mode": "builtin",
       "builtin": "data_quality",
       "default_enabled": true,
-      "order": 1
+      "order": 1,
+      "action": "delete_on_match"
     },
     {
       "id": "email.numeric_local",
@@ -93,7 +94,8 @@
       "match_mode": "builtin",
       "builtin": "numeric_local",
       "default_enabled": false,
-      "order": 2
+      "order": 2,
+      "action": "delete_on_match"
     },
     {
       "id": "name.india_surname",
@@ -569,7 +571,8 @@
         "Devaskar"
       ],
       "default_enabled": false,
-      "order": 3
+      "order": 3,
+      "action": "delete_on_match"
     },
     {
       "id": "country.whitelist",
@@ -671,7 +674,8 @@
         "Republic Of Korea"
       ],
       "default_enabled": true,
-      "order": 4
+      "order": 4,
+      "action": "keep_if_match"
     },
     {
       "id": "email.free_provider",
@@ -687,7 +691,8 @@
         "qq"
       ],
       "default_enabled": true,
-      "order": 5
+      "order": 5,
+      "action": "delete_on_match"
     },
     {
       "id": "email.country_tld",
@@ -720,7 +725,8 @@
         "ng"
       ],
       "default_enabled": true,
-      "order": 6
+      "order": 6,
+      "action": "delete_on_match"
     },
     {
       "id": "email.publisher",
@@ -739,7 +745,8 @@
         "mdpi"
       ],
       "default_enabled": true,
-      "order": 7
+      "order": 7,
+      "action": "delete_on_match"
     },
     {
       "id": "email.generic_tld",
@@ -756,7 +763,8 @@
         "mil"
       ],
       "default_enabled": true,
-      "order": 8
+      "order": 8,
+      "action": "delete_on_match"
     },
     {
       "id": "email.student",
@@ -769,7 +777,8 @@
       "match_mode": "substring",
       "patterns": [],
       "default_enabled": true,
-      "order": 9
+      "order": 9,
+      "action": "delete_on_match"
     },
     {
       "id": "email.pharma_biotech",
@@ -859,7 +868,8 @@
         "viatris"
       ],
       "default_enabled": true,
-      "order": 10
+      "order": 10,
+      "action": "delete_on_match"
     },
     {
       "id": "email.academic_special",
@@ -874,7 +884,8 @@
         "mail.las.ac.cn"
       ],
       "default_enabled": true,
-      "order": 11
+      "order": 11,
+      "action": "delete_on_match"
     },
     {
       "id": "aff.commercial_suffix",
@@ -900,7 +911,8 @@
         " Industry"
       ],
       "default_enabled": true,
-      "order": 12
+      "order": 12,
+      "action": "delete_on_match"
     },
     {
       "id": "aff.cn_hospital",
@@ -920,7 +932,8 @@
         " medicine"
       ],
       "default_enabled": true,
-      "order": 15
+      "order": 15,
+      "action": "delete_on_match"
     },
     {
       "id": "aff.cn_non_elite",
@@ -1093,7 +1106,8 @@
         "University of Saint Joseph"
       ],
       "default_enabled": true,
-      "order": 14
+      "order": 14,
+      "action": "keep_if_match"
     }
   ],
   "rule_groups": {
@@ -1104,7 +1118,7 @@
       ]
     },
     "country": {
-      "label": "国家",
+      "label": "国家 - 允许名单（最后保留）",
       "rules": [
         "country.whitelist"
       ]
@@ -1131,8 +1145,8 @@
     "aff.china": {
       "label": "机构 - 中国专项",
       "rules": [
-        "aff.cn_non_elite",
-        "aff.cn_hospital"
+        "aff.cn_hospital",
+        "aff.cn_non_elite"
       ]
     },
     "name": {
@@ -1144,10 +1158,10 @@
   },
   "rule_group_order": [
     "data",
-    "country",
     "email",
     "aff.commercial",
     "aff.china",
-    "name"
+    "name",
+    "country"
   ]
 }

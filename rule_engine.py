@@ -174,6 +174,38 @@ def _match_email_substring(email, patterns):
     return _match_substring(email_domain_full, patterns)
 
 
+def get_rule_action(rule):
+    action = rule.get("action")
+    if action:
+        return action
+    if rule.get("match_mode") in ("whitelist", "whitelist_invert"):
+        return "keep_if_match"
+    return "delete_on_match"
+
+
+def partition_enabled_rules(enabled_rules):
+    delete_rules = [r for r in enabled_rules if get_rule_action(r) == "delete_on_match"]
+    keep_rules = [r for r in enabled_rules if get_rule_action(r) == "keep_if_match"]
+    return delete_rules, keep_rules
+
+
+def keep_rule_matches(rule, row_values):
+    """Return True if the row satisfies this retention rule and should be kept."""
+    match_mode = rule.get("match_mode")
+    patterns = rule.get("patterns", [])
+    field = rule.get("field")
+    value = row_values.get(field, "")
+
+    if match_mode == "whitelist":
+        return _match_whitelist(value, patterns)
+
+    if match_mode == "whitelist_invert":
+        lower_value = value.lower()
+        return any(pattern.lower() in lower_value for pattern in patterns)
+
+    return True
+
+
 def rule_matches(rule, row_values):
     match_mode = rule.get("match_mode")
     patterns = rule.get("patterns", [])
@@ -201,11 +233,20 @@ def rule_matches(rule, row_values):
 
 
 def evaluate_row(row_values, enabled_rules):
-    for rule in enabled_rules:
+    delete_rules, keep_rules = partition_enabled_rules(enabled_rules)
+
+    for rule in delete_rules:
         if not _scope_applies(rule, row_values["country"]):
             continue
         if rule_matches(rule, row_values):
             return rule["note"], rule["id"]
+
+    for rule in keep_rules:
+        if not _scope_applies(rule, row_values["country"]):
+            continue
+        if not keep_rule_matches(rule, row_values):
+            return rule["note"], rule["id"]
+
     return None, None
 
 

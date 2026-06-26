@@ -13,6 +13,7 @@ import streamlit as st
 from rule_engine import (
     find_matching_preset,
     get_effective_enabled_rule_ids,
+    get_rule_action,
     get_rule_group_order,
     get_rule_groups,
     get_rules_by_id,
@@ -47,7 +48,27 @@ SCOPE_LABELS = {
 }
 
 
+ACTION_PREFIX = {
+    "delete_on_match": "【删除】",
+    "keep_if_match": "【保留】",
+}
+
+
+def format_rule_label(rule):
+    prefix = ACTION_PREFIX.get(get_rule_action(rule), "")
+    level = rule.get("level", 0)
+    return f"{prefix} L{level} {rule['name']}"
+
+
 def describe_rule_logic(rule):
+    action = get_rule_action(rule)
+    if action == "keep_if_match":
+        if rule.get("match_mode") == "whitelist":
+            return "保留规则（全部删除规则之后执行）：国家在允许名单内则保留，否则删除"
+        if rule.get("match_mode") == "whitelist_invert":
+            return "保留规则（全部删除规则之后执行）：中国机构匹配精英校名单则保留，否则删除"
+        return "保留规则（全部删除规则之后执行）"
+
     match_mode = rule.get("match_mode")
     if match_mode == "builtin":
         return BUILTIN_LABELS.get(rule.get("builtin", ""), "内置规则")
@@ -129,7 +150,7 @@ def render_rule_details(config):
         else:
             status = "已生效" if enabled else "未生效"
             icon = "✅" if enabled else "⬜"
-        header = f"{icon} L{level} · {rule['name']}（{group}）"
+        header = f"{icon} {format_rule_label(rule)}（{group}）"
 
         with st.expander(header, expanded=False):
             st.markdown(f"**规则 ID：** `{rule['id']}`")
@@ -283,8 +304,9 @@ def render_grouped_rule_checkboxes(config):
 
         if len(rule_ids) == 1:
             rule_id = rule_ids[0]
+            rule = rules_by_id[rule_id]
             checked = st.checkbox(
-                group_info["label"],
+                format_rule_label(rule),
                 value=st.session_state.rule_selection.get(rule_id, False),
             )
             st.session_state.rule_selection[rule_id] = checked
@@ -299,9 +321,8 @@ def render_grouped_rule_checkboxes(config):
 
         for rule_id in rule_ids:
             rule = rules_by_id[rule_id]
-            level = rule.get("level", 0)
             child_checked = st.checkbox(
-                f"L{level} {rule['name']}",
+                format_rule_label(rule),
                 value=st.session_state.rule_selection.get(rule_id, False),
                 disabled=not group_enabled,
             )
@@ -332,7 +353,7 @@ def render_sidebar(config):
     )
 
     st.sidebar.markdown("---")
-    st.sidebar.caption("第一层为规则组总开关，第二层为组内具体规则。关闭组后组内规则不生效。")
+    st.sidebar.caption("【删除】命中即剔除；【保留】规则在最后执行，在允许名单内才保留。")
     st.sidebar.caption("完整关键词请见主界面 **规则详情** 标签页。")
 
     btn_col1, btn_col2 = st.sidebar.columns(2)

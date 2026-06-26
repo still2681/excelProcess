@@ -6,7 +6,7 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 
 RULE_GROUP_TEMPLATES = {
     "data": {"label": "数据质量", "rules": ["data.quality"]},
-    "country": {"label": "国家", "rules": ["country.whitelist"]},
+    "country": {"label": "国家 - 允许名单（最后保留）", "rules": ["country.whitelist"]},
     "email": {
         "label": "邮箱",
         "rules": [
@@ -30,12 +30,23 @@ RULE_GROUP_TEMPLATES = {
     },
     "aff.china": {
         "label": "机构 - 中国专项",
-        "rules": ["aff.cn_non_elite", "aff.cn_hospital"],
+        "rules": ["aff.cn_hospital", "aff.cn_non_elite"],
     },
     "name": {"label": "姓名", "rules": ["name.india_surname"]},
 }
 
-RULE_GROUP_ORDER = ["data", "country", "email", "aff.commercial", "aff.china", "name"]
+RULE_GROUP_ORDER = ["data", "email", "aff.commercial", "aff.china", "name", "country"]
+
+KEEP_RULE_IDS = {"country.whitelist", "aff.cn_non_elite"}
+
+
+def inject_rule_actions(config):
+    for rule in config.get("rules", []):
+        if rule["id"] in KEEP_RULE_IDS:
+            rule["action"] = "keep_if_match"
+        else:
+            rule["action"] = "delete_on_match"
+    return config
 
 
 def inject_rule_groups(config):
@@ -58,6 +69,7 @@ def main():
     for path in paths:
         with open(path, encoding="utf-8") as f:
             config = json.load(f)
+        inject_rule_actions(config)
         inject_rule_groups(config)
         with open(path, "w", encoding="utf-8") as f:
             json.dump(config, f, ensure_ascii=False, indent=2)
