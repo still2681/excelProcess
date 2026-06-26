@@ -13,6 +13,134 @@ CONFIG_OPTIONS = {
 }
 GROUP_ORDER = ["data", "country", "email", "affiliation", "name"]
 
+MATCH_MODE_LABELS = {
+    "builtin": "内置逻辑",
+    "whitelist": "白名单（不在列表中则删除）",
+    "whitelist_invert": "反向白名单（不在白名单机构中则删除）",
+    "substring": "子串匹配（包含即命中）",
+    "domain_part": "邮箱域名分段匹配",
+    "exact": "精确匹配",
+}
+
+BUILTIN_LABELS = {
+    "data_quality": "email、affiliation、country 任一为空，或邮箱不含 @",
+    "numeric_local": "邮箱 @ 前的本地部分全部为数字",
+}
+
+SCOPE_LABELS = {
+    "global": "全球",
+    "china_only": "仅 China",
+}
+
+
+def describe_rule_logic(rule):
+    match_mode = rule.get("match_mode")
+    if match_mode == "builtin":
+        return BUILTIN_LABELS.get(rule.get("builtin", ""), "内置规则")
+
+    field = rule.get("field", "")
+    mode_label = MATCH_MODE_LABELS.get(match_mode, match_mode)
+    scope = SCOPE_LABELS.get(rule.get("scope", "global"), rule.get("scope", "global"))
+    return f"作用字段: {field} | 匹配方式: {mode_label} | 范围: {scope}"
+
+
+def render_rule_details(config):
+    st.subheader("规则详情")
+    st.caption("查看每条规则的具体匹配逻辑和完整关键词列表。")
+
+    group_labels = config.get("group_labels", {})
+    rules = sorted(config.get("rules", []), key=lambda r: r.get("order", 0))
+
+    filter_col1, filter_col2, filter_col3 = st.columns([1, 1, 2])
+    with filter_col1:
+        group_filter = st.selectbox(
+            "规则分组",
+            ["全部"] + [group_labels.get(g, g) for g in GROUP_ORDER],
+        )
+    with filter_col2:
+        scope_filter = st.selectbox("显示范围", ["全部规则", "仅已勾选规则"])
+    with filter_col3:
+        keyword = st.text_input("搜索关键词", placeholder="在国家/邮箱/机构关键词中搜索…")
+
+    if scope_filter == "仅已勾选规则":
+        rules = [r for r in rules if st.session_state.rule_selection.get(r["id"], False)]
+
+    if group_filter != "全部":
+        selected_group = next(
+            (g for g in GROUP_ORDER if group_labels.get(g, g) == group_filter),
+            None,
+        )
+        if selected_group:
+            rules = [r for r in rules if r.get("group") == selected_group]
+
+    if keyword.strip():
+        kw = keyword.strip().lower()
+        filtered = []
+        for rule in rules:
+            haystack = " ".join(
+                [
+                    rule.get("id", ""),
+                    rule.get("name", ""),
+                    rule.get("note", ""),
+                    describe_rule_logic(rule),
+                    " ".join(rule.get("patterns", [])),
+                ]
+            ).lower()
+            if kw in haystack:
+                filtered.append(rule)
+        rules = filtered
+
+    if not rules:
+        st.warning("没有符合条件的规则。")
+        return
+
+    st.markdown(f"共 **{len(rules)}** 条规则")
+
+    for rule in rules:
+        level = rule.get("level", 0)
+        group = group_labels.get(rule.get("group", ""), rule.get("group", ""))
+        enabled = st.session_state.rule_selection.get(rule["id"], False)
+        status = "已启用" if enabled else "未启用"
+        header = f"{'✅' if enabled else '⬜'} L{level} · {rule['name']}（{group}）"
+
+        with st.expander(header, expanded=False):
+            st.markdown(f"**规则 ID：** `{rule['id']}`")
+            st.markdown(f"**删除原因备注：** {rule.get('note', '')}")
+            st.markdown(f"**匹配逻辑：** {describe_rule_logic(rule)}")
+            st.caption(f"当前状态：{status}")
+
+            patterns = rule.get("patterns", [])
+            if patterns:
+                st.markdown(f"**关键词列表（共 {len(patterns)} 项）**")
+                if len(patterns) <= 30:
+                    st.dataframe(
+                        pd.DataFrame({"关键词": patterns}),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
+                else:
+                    preview = pd.DataFrame({"关键词": patterns[:30]})
+                    st.dataframe(preview, use_container_width=True, hide_index=True)
+                    st.caption("列表较长，下方可查看全部或复制。")
+                    st.text_area(
+                        f"全部关键词 - {rule['name']}",
+                        value="\n".join(patterns),
+                        height=240,
+                        disabled=True,
+                        label_visibility="collapsed",
+                    )
+            else:
+                st.info("该规则无关键词列表，按上方匹配逻辑自动判断。")
+
+            preset_names = [
+                info["label"]
+                for info in config.get("presets", {}).values()
+                if rule["id"] in info.get("rules", [])
+            ]
+            if preset_names:
+                st.markdown("**包含该规则的预设：** " + "、".join(preset_names))
+
+
 
 def init_session_state():
     if "rule_selection" not in st.session_state:
@@ -74,6 +202,7 @@ def render_sidebar(config):
         st.rerun()
 
     st.sidebar.markdown("---")
+    st.sidebar.caption("完整关键词与匹配逻辑请切换到主界面 **规则详情** 标签页。")
     st.sidebar.caption("也可手动勾选下方规则")
 
     if st.sidebar.button("全选", use_container_width=True):
@@ -93,7 +222,7 @@ def render_sidebar(config):
     for rule in sorted(config.get("rules", []), key=lambda r: r.get("order", 0)):
         rules_by_group.setdefault(rule.get("group", "other"), []).append(rule)
 
-    with st.sidebar.expander("规则明细", expanded=True):
+    with st.sidebar.expander("选择规则", expanded=True):
         for group in GROUP_ORDER + [g for g in rules_by_group if g not in GROUP_ORDER]:
             group_rules = rules_by_group.get(group, [])
             if not group_rules:
@@ -106,20 +235,11 @@ def render_sidebar(config):
                 checked = st.checkbox(
                     label,
                     value=st.session_state.rule_selection.get(rule["id"], False),
-                    help=rule.get("note", ""),
                 )
                 st.session_state.rule_selection[rule["id"]] = checked
 
 
-def render_main(config_key, config_path, config):
-    st.title("Excel 联系人清洗")
-    st.caption("上传含 email / affiliation / country 列的 Excel，按分层规则筛选并下载结果。")
-
-    st.info(
-        "隐私提示：上传文件会在 Streamlit 云服务器上临时处理，请勿上传高度敏感数据。"
-        " 敏感名单请克隆仓库后在本地运行 `streamlit run app.py`。"
-    )
-
+def render_cleaning(config_key, config):
     uploaded = st.file_uploader("上传 Excel 文件", type=["xlsx", "xls"])
 
     if uploaded is not None:
@@ -200,6 +320,24 @@ def render_main(config_key, config_path, config):
 
     with st.expander("查看保留数据预览"):
         st.dataframe(result["df_kept"].head(50), use_container_width=True)
+
+
+def render_main(config_key, config_path, config):
+    st.title("Excel 联系人清洗")
+    st.caption("上传含 email / affiliation / country 列的 Excel，按分层规则筛选并下载结果。")
+
+    st.info(
+        "隐私提示：上传文件会在 Streamlit 云服务器上临时处理，请勿上传高度敏感数据。"
+        " 敏感名单请克隆仓库后在本地运行 `streamlit run app.py`。"
+    )
+
+    tab_clean, tab_rules = st.tabs(["数据清洗", "规则详情"])
+
+    with tab_rules:
+        render_rule_details(config)
+
+    with tab_clean:
+        render_cleaning(config_key, config)
 
 
 def main():
