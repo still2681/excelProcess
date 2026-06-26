@@ -283,6 +283,18 @@ def get_enabled_rule_ids(config):
     )
 
 
+def render_tree_checkbox(glyph, label, value, disabled=False, nested=False):
+    glyph_col, check_col = st.columns([0.14, 0.86], gap="small")
+    indent = "&nbsp;&nbsp;&nbsp;&nbsp;" if nested else ""
+    with glyph_col:
+        st.markdown(
+            f"<span style='color:#888;font-family:monospace'>{indent}{glyph}</span>",
+            unsafe_allow_html=True,
+        )
+    with check_col:
+        return st.checkbox(label, value=value, disabled=disabled)
+
+
 def render_grouped_rule_checkboxes(config):
     rules_by_id = get_rules_by_id(config)
     rule_groups = get_rule_groups(config)
@@ -294,26 +306,23 @@ def render_grouped_rule_checkboxes(config):
         if len(rule_ids) == 1:
             rule_id = rule_ids[0]
             rule = rules_by_id[rule_id]
-            checked = st.checkbox(
-                format_rule_label(rule),
-                value=st.session_state.rule_selection.get(rule_id, False),
-            )
+            checked = render_tree_checkbox("•", format_rule_label(rule), st.session_state.rule_selection.get(rule_id, False))
             st.session_state.rule_selection[rule_id] = checked
             st.session_state.group_selection[group_id] = checked
             continue
 
-        group_enabled = st.checkbox(
-            group_info["label"],
-            value=st.session_state.group_selection.get(group_id, False),
-        )
+        group_enabled = render_tree_checkbox("▼", group_info["label"], st.session_state.group_selection.get(group_id, False))
         st.session_state.group_selection[group_id] = group_enabled
 
-        for rule_id in rule_ids:
+        for index, rule_id in enumerate(rule_ids):
             rule = rules_by_id[rule_id]
-            child_checked = st.checkbox(
+            branch = "└─" if index == len(rule_ids) - 1 else "├─"
+            child_checked = render_tree_checkbox(
+                branch,
                 format_rule_label(rule),
-                value=st.session_state.rule_selection.get(rule_id, False),
+                st.session_state.rule_selection.get(rule_id, False),
                 disabled=not group_enabled,
+                nested=True,
             )
             if group_enabled:
                 st.session_state.rule_selection[rule_id] = child_checked
@@ -339,8 +348,6 @@ def render_sidebar(config):
     )
 
     st.sidebar.markdown("---")
-    st.sidebar.caption("【删除】命中即剔除；【保留】规则在最后执行，在允许名单内才保留。")
-    st.sidebar.caption("完整关键词请见主界面 **规则详情** 标签页。")
 
     btn_col1, btn_col2 = st.sidebar.columns(2)
     if btn_col1.button("全选", use_container_width=True):
@@ -359,8 +366,8 @@ def render_sidebar(config):
         st.session_state.result = None
         st.rerun()
 
-    with st.sidebar.expander("选择规则", expanded=True):
-        render_grouped_rule_checkboxes(config)
+    st.sidebar.markdown("**选择规则**")
+    render_grouped_rule_checkboxes(config)
 
     st.session_state.group_selection = sync_group_selection(
         config, st.session_state.rule_selection, st.session_state.group_selection
