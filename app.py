@@ -236,15 +236,26 @@ def ensure_rule_selection(config):
         )
 
 
-def sync_preset_display(config, config_key):
+def sync_preset_before_widgets(config, config_key):
+    """Update preset selectbox state before the widget renders."""
     preset_key = preset_session_key(config_key)
     matching = find_matching_preset(
         config,
         st.session_state.rule_selection,
         st.session_state.group_selection,
     )
-    if st.session_state.get(preset_key) != matching:
-        st.session_state[preset_key] = matching
+    st.session_state[preset_key] = matching
+    return matching
+
+
+def request_preset_resync_if_needed(config, previous_matching):
+    """After checkbox edits, rerun so preset can sync on the next run."""
+    current_matching = find_matching_preset(
+        config,
+        st.session_state.rule_selection,
+        st.session_state.group_selection,
+    )
+    if current_matching != previous_matching:
         st.rerun()
 
 
@@ -309,6 +320,8 @@ def render_sidebar(config):
 
     st.sidebar.header("清洗规则")
 
+    preset_matching = sync_preset_before_widgets(config, config_key)
+
     st.sidebar.selectbox(
         "预设方案",
         options=preset_ids,
@@ -345,7 +358,7 @@ def render_sidebar(config):
     st.session_state.group_selection = sync_group_selection(
         config, st.session_state.rule_selection, st.session_state.group_selection
     )
-    sync_preset_display(config, config_key)
+    request_preset_resync_if_needed(config, preset_matching)
 
 
 def render_cleaning(config_key, config):
